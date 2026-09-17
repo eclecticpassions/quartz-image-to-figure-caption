@@ -1,7 +1,7 @@
 {
   "name": "quartz-image-to-figure-caption",
-  "version": "0.1.4",
-  "description": "Convert Markdown image syntax to HTML figure with figcaption support, and add image size attributes",
+  "version": "0.1.5",
+  "description": "Convert Markdown image syntax to HTML figure with figcaption support, and add image size attributes.",
   "type": "module",
   "license": "MIT",
   "author": "Naty S",
@@ -104,7 +104,7 @@
   "quartz": {
     "name": "image-to-figure-caption",
     "displayName": "Image to Figure with Caption",
-    "description": "Convert Markdown image syntax to HTML figure with figcaption support, and add image size attributes",
+    "description": "Convert Markdown image syntax to HTML figure with figcaption support, and add image size attributes.",
     "plugins": {
       "html": [
         "src/index"

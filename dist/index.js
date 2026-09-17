@@ -11194,36 +11194,99 @@ var remarkFigureCaption = () => {
 
 // src/index.ts
 var import_image_size = __toESM(require_dist());
+var imageSearchCache = /* @__PURE__ */ new Map();
+function walkFiles(dir, out = []) {
+  if (!fs.existsSync(dir)) return out;
+  try {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith(".") || entry.name === "node_modules" || entry.name === "public") {
+        continue;
+      }
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walkFiles(fullPath, out);
+      } else if (entry.isFile()) {
+        out.push(fullPath);
+      }
+    }
+  } catch (e) {
+  }
+  return out;
+}
+function stripQueryAndHash(src) {
+  const noQuery = src.split("?")[0] ?? "";
+  const noHash = noQuery.split("#")[0] ?? "";
+  return noHash.replace(/^\.?\//, "").replace(/^\//, "");
+}
+function findImageSafely(src, filePath) {
+  const normalized = stripQueryAndHash(src);
+  if (!normalized) return null;
+  const cacheKey = `${filePath ?? ""}::${normalized}`;
+  if (imageSearchCache.has(cacheKey)) {
+    return imageSearchCache.get(cacheKey) ?? null;
+  }
+  const cwd = process.cwd();
+  const directCandidates = [
+    path.join(cwd, "static", normalized),
+    path.join(cwd, "content", normalized)
+  ];
+  if (filePath) {
+    const fileDir = path.dirname(filePath);
+    directCandidates.unshift(path.resolve(fileDir, normalized));
+  }
+  for (const candidate of directCandidates) {
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      imageSearchCache.set(cacheKey, candidate);
+      return candidate;
+    }
+  }
+  const roots = [path.join(cwd, "static"), path.join(cwd, "content")].filter(
+    (r) => fs.existsSync(r)
+  );
+  const allFiles = roots.flatMap((root2) => walkFiles(root2));
+  const exactSuffixMatches = allFiles.filter((file) => {
+    const rel = path.relative(cwd, file).replace(/\\/g, "/");
+    return rel === normalized || rel.endsWith(`/${normalized}`);
+  });
+  if (exactSuffixMatches.length > 0) {
+    const match = exactSuffixMatches[0] ?? null;
+    imageSearchCache.set(cacheKey, match);
+    return match;
+  }
+  const base = path.basename(normalized);
+  const basenameMatches = allFiles.filter((file) => path.basename(file) === base);
+  if (basenameMatches.length === 1) {
+    const match = basenameMatches[0] ?? null;
+    imageSearchCache.set(cacheKey, match);
+    return match;
+  }
+  if (basenameMatches.length > 1) {
+    console.warn(
+      `[rehypeFigure] Warning: Multiple images found with filename "${base}". Using: ${basenameMatches[0]}`
+    );
+    const match = basenameMatches[0] ?? null;
+    imageSearchCache.set(cacheKey, match);
+    return match;
+  }
+  imageSearchCache.set(cacheKey, null);
+  return null;
+}
 function rehypeImageDimensions() {
   return (tree, file) => {
     visit(tree, "element", (node2) => {
       if (node2.tagName !== "img") return;
       const src = node2.properties?.src;
       if (!src || src.startsWith("http") || src.startsWith("//") || src.startsWith("data:")) return;
-      const cleanSrc = (src.split("?")[0] || "").replace(/^(\.\/|\/)/, "");
-      const fileDir = file?.path ? path.dirname(file.path) : process.cwd();
-      const possiblePaths = [
-        path.join(process.cwd(), "content", cleanSrc),
-        path.resolve(fileDir, cleanSrc),
-        path.join(process.cwd(), "static", cleanSrc)
-      ];
-      let assetPath = null;
-      for (const p of possiblePaths) {
-        if (fs.existsSync(p)) {
-          assetPath = p;
-          break;
+      const assetPath = findImageSafely(src, file?.path);
+      if (!assetPath) return;
+      try {
+        const dimensions = (0, import_image_size.imageSize)(assetPath);
+        if (dimensions?.width && dimensions?.height) {
+          node2.properties.width = dimensions.width;
+          node2.properties.height = dimensions.height;
         }
-      }
-      if (assetPath) {
-        try {
-          const dimensions = (0, import_image_size.imageSize)(assetPath);
-          if (dimensions?.width && dimensions?.height) {
-            node2.properties.width = dimensions.width;
-            node2.properties.height = dimensions.height;
-          }
-        } catch (e) {
-          console.error(`Could not read dimensions for: ${assetPath}`);
-        }
+      } catch (e) {
+        console.error(`Could not read dimensions for: ${assetPath}`);
       }
     });
   };
@@ -11291,7 +11354,6 @@ var RehypeFigure = () => ({
     return [
       [rehypeFigureTitle, {}],
       [rehypeImageDimensions, {}],
-      // Placed before rich caption
       [rehypeRichCaption, {}]
     ];
   }

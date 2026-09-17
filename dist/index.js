@@ -11195,6 +11195,18 @@ var remarkFigureCaption = () => {
 // src/index.ts
 var import_image_size = __toESM(require_dist());
 var imageSearchCache = /* @__PURE__ */ new Map();
+function findProjectRoot(filePath) {
+  let currentDir = filePath ? path.dirname(filePath) : process.cwd();
+  for (let i = 0; i < 6; i++) {
+    if (fs.existsSync(path.join(currentDir, "static")) || fs.existsSync(path.join(currentDir, "package.json"))) {
+      return currentDir;
+    }
+    const parent = path.dirname(currentDir);
+    if (parent === currentDir) break;
+    currentDir = parent;
+  }
+  return process.cwd();
+}
 function walkFiles(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
   try {
@@ -11225,51 +11237,33 @@ function findImageSafely(src, filePath) {
   if (imageSearchCache.has(cacheKey)) {
     return imageSearchCache.get(cacheKey) ?? null;
   }
-  const cwd = process.cwd();
+  const rootDir = findProjectRoot(filePath);
   const cleanNormalized = normalized.replace(/^static\//, "");
-  const directCandidates = [
-    path.join(cwd, "static", cleanNormalized),
-    // Handles './static/og-image.png' -> 'cwd/static/og-image.png'
-    path.join(cwd, "content", normalized),
-    path.join(cwd, "static", normalized)
-  ];
-  if (filePath) {
-    const fileDir = path.dirname(filePath);
-    directCandidates.unshift(path.resolve(fileDir, normalized));
-  }
-  for (const candidate of directCandidates) {
+  const baseName = path.basename(cleanNormalized);
+  const candidates = [
+    filePath ? path.resolve(path.dirname(filePath), normalized) : "",
+    filePath ? path.resolve(path.dirname(filePath), cleanNormalized) : "",
+    path.join(rootDir, "static", cleanNormalized),
+    path.join(rootDir, "static", normalized),
+    path.join(rootDir, "static", baseName),
+    path.join(rootDir, "content", cleanNormalized),
+    path.join(rootDir, "content", normalized),
+    path.join(rootDir, "content", baseName)
+  ].filter(Boolean);
+  for (const candidate of candidates) {
     if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
       imageSearchCache.set(cacheKey, candidate);
       return candidate;
     }
   }
-  const roots = [path.join(cwd, "static"), path.join(cwd, "content")].filter(
+  const roots = [path.join(rootDir, "static"), path.join(rootDir, "content")].filter(
     (r) => fs.existsSync(r)
   );
   const allFiles = roots.flatMap((root2) => walkFiles(root2));
-  const exactSuffixMatches = allFiles.filter((file) => {
-    const rel = path.relative(cwd, file).replace(/\\/g, "/");
-    return rel === normalized || rel === cleanNormalized || rel.endsWith(`/${normalized}`) || rel.endsWith(`/${cleanNormalized}`);
-  });
-  if (exactSuffixMatches.length > 0) {
-    const match = exactSuffixMatches[0] ?? null;
-    imageSearchCache.set(cacheKey, match);
-    return match;
-  }
-  const base = path.basename(cleanNormalized);
-  const basenameMatches = allFiles.filter((file) => path.basename(file) === base);
-  if (basenameMatches.length === 1) {
-    const match = basenameMatches[0] ?? null;
-    imageSearchCache.set(cacheKey, match);
-    return match;
-  }
-  if (basenameMatches.length > 1) {
-    console.warn(
-      `[rehypeFigure] Warning: Multiple images found with filename "${base}". Using: ${basenameMatches[0]}`
-    );
-    const match = basenameMatches[0] ?? null;
-    imageSearchCache.set(cacheKey, match);
-    return match;
+  const matchedFile = allFiles.find((file) => path.basename(file) === baseName);
+  if (matchedFile) {
+    imageSearchCache.set(cacheKey, matchedFile);
+    return matchedFile;
   }
   imageSearchCache.set(cacheKey, null);
   return null;

@@ -10,6 +10,109 @@ import type { VFile } from "vfile";
 import path from "path";
 import fs from "fs";
 
+// Cache image lookups to avoid repeated disk I/O during builds
+const imageSearchCache = new Map<string, string | null>();
+
+// Safely walk directory while ignoring hidden folders, git, and node_modules
+function walkFiles(dir: string, out: string[] = []): string[] {
+  if (!fs.existsSync(dir)) return out;
+  try {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      // Skip hidden files/folders and heavy system directories
+      if (entry.name.startsWith(".") || entry.name === "node_modules" || entry.name === "public") {
+        continue;
+      }
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walkFiles(fullPath, out);
+      } else if (entry.isFile()) {
+        out.push(fullPath);
+      }
+    }
+  } catch (e) {
+    // Silently handle transient file read or permission errors
+  }
+  return out;
+}
+
+function stripQueryAndHash(src: string): string {
+  const noQuery = src.split("?")[0] ?? "";
+  const noHash = noQuery.split("#")[0] ?? "";
+  return noHash.replace(/^\.?\//, "").replace(/^\//, "");
+}
+
+// Robust image finder supporting static/, content/, and relative paths with fallbacks
+
+function findImageSafely(src: string, filePath?: string): string | null {
+  const normalized = stripQueryAndHash(src);
+  if (!normalized) return null;
+
+  const cacheKey = `${filePath ?? ""}::${normalized}`;
+  if (imageSearchCache.has(cacheKey)) {
+    return imageSearchCache.get(cacheKey) ?? null;
+  }
+
+  const cwd = process.cwd();
+
+  // 1. Check direct/explicit paths first
+  const directCandidates = [
+    path.join(cwd, "static", normalized),
+    path.join(cwd, "content", normalized),
+  ];
+
+  if (filePath) {
+    const fileDir = path.dirname(filePath);
+    directCandidates.unshift(path.resolve(fileDir, normalized));
+  }
+
+  for (const candidate of directCandidates) {
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      imageSearchCache.set(cacheKey, candidate);
+      return candidate;
+    }
+  }
+
+  // 2. Fallback to recursive scan of static and content roots
+  const roots = [path.join(cwd, "static"), path.join(cwd, "content")].filter((r) =>
+    fs.existsSync(r),
+  );
+  const allFiles = roots.flatMap((root) => walkFiles(root));
+
+  // Check for exact relative path suffix match (e.g., "images/banner.png" matching "content/assets/images/banner.png")
+  const exactSuffixMatches = allFiles.filter((file) => {
+    const rel = path.relative(cwd, file).replace(/\\/g, "/");
+    return rel === normalized || rel.endsWith(`/${normalized}`);
+  });
+
+  if (exactSuffixMatches.length > 0) {
+    const match = exactSuffixMatches[0] ?? null;
+    imageSearchCache.set(cacheKey, match);
+    return match;
+  }
+
+  // 3. Basename fallback (handles cases where users write just "filename.png")
+  const base = path.basename(normalized);
+  const basenameMatches = allFiles.filter((file) => path.basename(file) === base);
+
+  if (basenameMatches.length === 1) {
+    const match = basenameMatches[0] ?? null;
+    imageSearchCache.set(cacheKey, match);
+    return match;
+  }
+
+  if (basenameMatches.length > 1) {
+    console.warn(
+      `[rehypeFigure] Warning: Multiple images found with filename "${base}". Using: ${basenameMatches[0]}`,
+    );
+    const match = basenameMatches[0] ?? null;
+    imageSearchCache.set(cacheKey, match);
+    return match;
+  }
+
+  imageSearchCache.set(cacheKey, null);
+  return null;
+}
+
 // First function: Auto-calculate and inject image dimensions to fix anchor link jumping inaccurately
 function rehypeImageDimensions() {
   return (tree: Root, file?: VFile) => {
@@ -19,39 +122,23 @@ function rehypeImageDimensions() {
       const src = node.properties?.src as string;
       if (!src || src.startsWith("http") || src.startsWith("//") || src.startsWith("data:")) return;
 
-      const cleanSrc = (src.split("?")[0] || "").replace(/^(\.\/|\/)/, "");
-      const fileDir = file?.path ? path.dirname(file.path) : process.cwd();
+      const assetPath = findImageSafely(src, file?.path);
+      if (!assetPath) return;
 
-      const possiblePaths = [
-        path.join(process.cwd(), "content", cleanSrc),
-        path.resolve(fileDir, cleanSrc),
-        path.join(process.cwd(), "static", cleanSrc),
-      ];
-
-      let assetPath: string | null = null;
-      for (const p of possiblePaths) {
-        if (fs.existsSync(p)) {
-          assetPath = p;
-          break;
+      try {
+        const dimensions = imageSize(assetPath);
+        if (dimensions?.width && dimensions?.height) {
+          node.properties.width = dimensions.width;
+          node.properties.height = dimensions.height;
         }
-      }
-
-      if (assetPath) {
-        try {
-          const dimensions = imageSize(assetPath);
-          if (dimensions?.width && dimensions?.height) {
-            node.properties.width = dimensions.width;
-            node.properties.height = dimensions.height;
-          }
-        } catch (e) {
-          console.error(`Could not read dimensions for: ${assetPath}`);
-        }
+      } catch (e) {
+        console.error(`Could not read dimensions for: ${assetPath}`);
       }
     });
   };
 }
 
-// Second function: Add  captions to images
+// Second function: Add figcaptions to images
 function rehypeRichCaption() {
   return (tree: Root) => {
     visit(tree, "element", (node: any) => {
@@ -85,7 +172,6 @@ function rehypeRichCaption() {
         }
         return;
       } catch (e) {
-        // Fallback to raw URL linkify
         const urlRegex = /https?:\/\/[^\s<)]+/g;
         const matches = [...captionText.matchAll(urlRegex)];
         if (matches.length > 0) {
@@ -125,7 +211,7 @@ export const RehypeFigure: QuartzTransformerPlugin = () => ({
   htmlPlugins() {
     return [
       [rehypeFigureTitle, {}],
-      [rehypeImageDimensions, {}], // Placed before rich caption
+      [rehypeImageDimensions, {}],
       [rehypeRichCaption, {}],
     ];
   },

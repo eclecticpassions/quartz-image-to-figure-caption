@@ -42,7 +42,6 @@ function stripQueryAndHash(src: string): string {
 }
 
 // Robust image finder supporting static/, content/, and relative paths with fallbacks
-
 function findImageSafely(src: string, filePath?: string): string | null {
   const normalized = stripQueryAndHash(src);
   if (!normalized) return null;
@@ -54,10 +53,14 @@ function findImageSafely(src: string, filePath?: string): string | null {
 
   const cwd = process.cwd();
 
+  // Strip leading "static/" if present to prevent folder duplication (e.g. static/static/...)
+  const cleanNormalized = normalized.replace(/^static\//, "");
+
   // 1. Check direct/explicit paths first
   const directCandidates = [
-    path.join(cwd, "static", normalized),
+    path.join(cwd, "static", cleanNormalized), // Handles './static/og-image.png' -> 'cwd/static/og-image.png'
     path.join(cwd, "content", normalized),
+    path.join(cwd, "static", normalized),
   ];
 
   if (filePath) {
@@ -71,17 +74,21 @@ function findImageSafely(src: string, filePath?: string): string | null {
       return candidate;
     }
   }
-
   // 2. Fallback to recursive scan of static and content roots
   const roots = [path.join(cwd, "static"), path.join(cwd, "content")].filter((r) =>
     fs.existsSync(r),
   );
   const allFiles = roots.flatMap((root) => walkFiles(root));
 
-  // Check for exact relative path suffix match (e.g., "images/banner.png" matching "content/assets/images/banner.png")
+  // Check for exact relative path suffix match
   const exactSuffixMatches = allFiles.filter((file) => {
     const rel = path.relative(cwd, file).replace(/\\/g, "/");
-    return rel === normalized || rel.endsWith(`/${normalized}`);
+    return (
+      rel === normalized ||
+      rel === cleanNormalized ||
+      rel.endsWith(`/${normalized}`) ||
+      rel.endsWith(`/${cleanNormalized}`)
+    );
   });
 
   if (exactSuffixMatches.length > 0) {
@@ -91,7 +98,7 @@ function findImageSafely(src: string, filePath?: string): string | null {
   }
 
   // 3. Basename fallback (handles cases where users write just "filename.png")
-  const base = path.basename(normalized);
+  const base = path.basename(cleanNormalized);
   const basenameMatches = allFiles.filter((file) => path.basename(file) === base);
 
   if (basenameMatches.length === 1) {

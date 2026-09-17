@@ -1,6 +1,6 @@
 {
-  "name": "quartz-image-to-figure-caption",
-  "version": "0.1.8",
+  "name": "@eclecticpassions/quartz-image-to-figure-caption",
+  "version": "0.2.0",
   "description": "Convert Markdown image syntax to HTML figure with figcaption support, and add image size attributes.",
   "type": "module",
   "license": "MIT",
@@ -8,7 +8,7 @@
   "homepage": "https://burgeonlab.com",
   "repository": {
     "type": "git",
-    "url": "https://github.com/eclecticpassions/quartz-image-to-figure-caption"
+    "url": "git+https://github.com/eclecticpassions/quartz-image-to-figure-caption.git"
   },
   "keywords": [
     "quartz",

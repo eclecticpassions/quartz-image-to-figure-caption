@@ -84,6 +84,7 @@ figure {
 > [!WARNING]
 > I used a few LLMs to help troubleshoot to get the `index.ts` file working. I am not a professional coder. Please review the code and packages before use. Check node package status by running `npm audit` regularly to check for vulnerabilities.
 
+- The README and all documentation is written fully by me; only edits in the code are assisted by LLMs.
 - This plugin uses the official Quartz-community [plugin template](https://github.com/quartz-community/plugin-template)
 - Only Quartz v5.0.0 has been tested to work (if you run an older version of Quartz and want to test it, please open an issue, thanks!)
 

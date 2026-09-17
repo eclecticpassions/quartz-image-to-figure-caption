@@ -11226,9 +11226,12 @@ function findImageSafely(src, filePath) {
     return imageSearchCache.get(cacheKey) ?? null;
   }
   const cwd = process.cwd();
+  const cleanNormalized = normalized.replace(/^static\//, "");
   const directCandidates = [
-    path.join(cwd, "static", normalized),
-    path.join(cwd, "content", normalized)
+    path.join(cwd, "static", cleanNormalized),
+    // Handles './static/og-image.png' -> 'cwd/static/og-image.png'
+    path.join(cwd, "content", normalized),
+    path.join(cwd, "static", normalized)
   ];
   if (filePath) {
     const fileDir = path.dirname(filePath);
@@ -11246,14 +11249,14 @@ function findImageSafely(src, filePath) {
   const allFiles = roots.flatMap((root2) => walkFiles(root2));
   const exactSuffixMatches = allFiles.filter((file) => {
     const rel = path.relative(cwd, file).replace(/\\/g, "/");
-    return rel === normalized || rel.endsWith(`/${normalized}`);
+    return rel === normalized || rel === cleanNormalized || rel.endsWith(`/${normalized}`) || rel.endsWith(`/${cleanNormalized}`);
   });
   if (exactSuffixMatches.length > 0) {
     const match = exactSuffixMatches[0] ?? null;
     imageSearchCache.set(cacheKey, match);
     return match;
   }
-  const base = path.basename(normalized);
+  const base = path.basename(cleanNormalized);
   const basenameMatches = allFiles.filter((file) => path.basename(file) === base);
   if (basenameMatches.length === 1) {
     const match = basenameMatches[0] ?? null;

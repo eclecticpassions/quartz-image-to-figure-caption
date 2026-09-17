@@ -11238,27 +11238,36 @@ function findImageSafely(src, filePath) {
     return imageSearchCache.get(cacheKey) ?? null;
   }
   const rootDir = findProjectRoot(filePath);
-  const cleanNormalized = normalized.replace(/^static\//, "");
+  const cleanNormalized = normalized.replace(/^(\/)?static\//, "");
   const baseName = path.basename(cleanNormalized);
-  const candidates = [
+  const candidates = [];
+  if (src.includes("static/") || src.startsWith("/")) {
+    candidates.push(
+      path.join(rootDir, "quartz", "static", cleanNormalized),
+      path.join(rootDir, "quartz", "static", baseName),
+      path.join(rootDir, "static", cleanNormalized),
+      path.join(rootDir, "static", baseName)
+    );
+  }
+  candidates.push(
     filePath ? path.resolve(path.dirname(filePath), normalized) : "",
     filePath ? path.resolve(path.dirname(filePath), cleanNormalized) : "",
-    path.join(rootDir, "static", cleanNormalized),
-    path.join(rootDir, "static", normalized),
-    path.join(rootDir, "static", baseName),
     path.join(rootDir, "content", cleanNormalized),
     path.join(rootDir, "content", normalized),
     path.join(rootDir, "content", baseName)
-  ].filter(Boolean);
-  for (const candidate of candidates) {
+  );
+  const validCandidates = candidates.filter(Boolean);
+  for (const candidate of validCandidates) {
     if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
       imageSearchCache.set(cacheKey, candidate);
       return candidate;
     }
   }
-  const roots = [path.join(rootDir, "static"), path.join(rootDir, "content")].filter(
-    (r) => fs.existsSync(r)
-  );
+  const roots = [
+    path.join(rootDir, "quartz", "static"),
+    path.join(rootDir, "static"),
+    path.join(rootDir, "content")
+  ].filter((r) => fs.existsSync(r));
   const allFiles = roots.flatMap((root2) => walkFiles(root2));
   const matchedFile = allFiles.find((file) => path.basename(file) === baseName);
   if (matchedFile) {

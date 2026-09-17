@@ -56,7 +56,7 @@ function stripQueryAndHash(src: string): string {
   return noHash.replace(/^\.?\//, "").replace(/^\//, "");
 }
 
-// Robust image finder supporting static/, content/, and relative paths with fallbacks
+// Robust image finder supporting quartz/static/, content/, and relative paths
 function findImageSafely(src: string, filePath?: string): string | null {
   const normalized = stripQueryAndHash(src);
   if (!normalized) return null;
@@ -67,33 +67,47 @@ function findImageSafely(src: string, filePath?: string): string | null {
   }
 
   const rootDir = findProjectRoot(filePath);
-  const cleanNormalized = normalized.replace(/^static\//, "");
+  const cleanNormalized = normalized.replace(/^(\/)?static\//, "");
   const baseName = path.basename(cleanNormalized);
 
-  // Build explicit absolute candidate paths using the verified project root
-  const candidates: string[] = [
+  const candidates: string[] = [];
+
+  // 1. If path targets static/, check quartz/static/ first, then root static/ just in case
+  if (src.includes("static/") || src.startsWith("/")) {
+    candidates.push(
+      path.join(rootDir, "quartz", "static", cleanNormalized),
+      path.join(rootDir, "quartz", "static", baseName),
+      path.join(rootDir, "static", cleanNormalized),
+      path.join(rootDir, "static", baseName)
+    );
+  }
+
+  // 2. Standard relative and content-relative fallbacks
+  candidates.push(
     filePath ? path.resolve(path.dirname(filePath), normalized) : "",
     filePath ? path.resolve(path.dirname(filePath), cleanNormalized) : "",
-    path.join(rootDir, "static", cleanNormalized),
-    path.join(rootDir, "static", normalized),
-    path.join(rootDir, "static", baseName),
     path.join(rootDir, "content", cleanNormalized),
     path.join(rootDir, "content", normalized),
-    path.join(rootDir, "content", baseName),
-  ].filter(Boolean);
+    path.join(rootDir, "content", baseName)
+  );
 
-  // Test all explicit candidates first
-  for (const candidate of candidates) {
+  const validCandidates = candidates.filter(Boolean);
+
+  // Test all explicit candidates
+  for (const candidate of validCandidates) {
     if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
       imageSearchCache.set(cacheKey, candidate);
       return candidate;
     }
   }
 
-  // Fallback: recursive scan of static/ and content/ roots
-  const roots = [path.join(rootDir, "static"), path.join(rootDir, "content")].filter((r) =>
-    fs.existsSync(r),
-  );
+  // Fallback: recursive scan of quartz/static/, static/, and content/ roots
+  const roots = [
+    path.join(rootDir, "quartz", "static"),
+    path.join(rootDir, "static"),
+    path.join(rootDir, "content"),
+  ].filter((r) => fs.existsSync(r));
+  
   const allFiles = roots.flatMap((root) => walkFiles(root));
 
   const matchedFile = allFiles.find((file) => path.basename(file) === baseName);

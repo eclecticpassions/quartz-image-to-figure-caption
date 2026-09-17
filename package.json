@@ -1,6 +1,6 @@
 {
   "name": "@eclecticpassions/quartz-image-to-figure-caption",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Convert Markdown image syntax to HTML figure with figcaption support, and add image size attributes.",
   "type": "module",
   "license": "MIT",
